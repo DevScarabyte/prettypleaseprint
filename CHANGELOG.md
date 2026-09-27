@@ -7,6 +7,27 @@ Notable changes. Every entry names a released version; deployments pin
 
 ### Added
 
+- **Rocket Loader has to be off, and the docs now say so.** Reported by NelsonFx
+  on the pull request that added the tunnel overlay, and it is the first thing an
+  orange-clouded deployment hits. Cloudflare's Rocket Loader rewrites every
+  `<script>` to load through its own deferred loader, and the rewritten tags do
+  not carry the per-request nonce that `script-src 'self' 'nonce-…'
+  'strict-dynamic'` requires — so hydration never happens and no client-side code
+  runs at all.
+
+  The failure is quieter than an error: every page renders from server HTML and
+  looks right, and simply does nothing. Sign-in is where it shows first, because
+  `/signin` is a client component and both the passkey and password paths go
+  through the auth client, but it takes the upload progress bar, the viewer and
+  the Activity menu with it. CSP violations appear in the browser console and
+  nothing appears in the app's logs, because the requests never arrive.
+
+  There is no way to keep both: the alternative is `unsafe-inline`, which throws
+  away what the nonce is for. Documented in the README's troubleshooting list and
+  in the Cloudflare section of [deployment](docs/deployment.md), with Auto Minify
+  and Brotli noted as safe.
+
+
 - **`npm run migrate:storage` — copy every model out of MinIO, and prove the
   copy is complete.** The first step of removing the object store, and it
   changes nothing about how the app runs: the app keeps reading from MinIO, and
@@ -65,6 +86,30 @@ Notable changes. Every entry names a released version; deployments pin
 
   Pure aggregation: no new column, nothing recorded for it, and no charting
   library — a CDN would be refused by `script-src 'self'` and it is four bars.
+
+- **A Cloudflare Tunnel overlay, for a deployment whose public address is not
+  its own to keep.** `docker-compose.tunnel.yml` runs a `cloudflared` connector
+  beside the app, and is used *instead of* `docker-compose.proxy.yml`. The
+  origin dials outward, so there is no port to forward, no `A` record to keep
+  current, and an address the ISP can take back stops being able to take the
+  site down. That is the failure it was written for: a DSL-to-cable migration
+  handed the old address back, the record went on pointing at an IP that no
+  longer routed, and Cloudflare answered 522 while the app stayed healthy, its
+  certificate valid and its own logs entirely quiet — because from the app's
+  side nothing was wrong.
+
+  It publishes no host port, which is the condition that keeps
+  `TRUST_PROXY_HEADERS=cloudflare` honest rather than merely set, and it
+  deliberately declares no `environment:` of its own: a service-level value
+  beats `env_file:`, so an overlay that hard-codes one overrules `.env.docker`
+  in silence. That is the trap `docker-compose.proxy.yml` already carries a
+  paragraph about, and repeating it here would have been the same bug twice.
+
+  Documented beside the Nginx Proxy Manager route, along with the limit
+  Cloudflare imposes either way: its request-body cap is 100 MB on Free and
+  Pro against this app's own 250 MB, and over it the edge answers 413 before
+  the app is reached at all. Any orange-clouded deployment already has that
+  ceiling, tunnel or not.
 
 - **Models up to 250 MB, from 50 MB.** Real work went past the old cap —
   multi-object plates and scanned meshes — and the app's answer was "decimate

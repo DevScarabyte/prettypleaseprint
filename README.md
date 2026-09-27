@@ -166,6 +166,7 @@ with commentary is [`.env.docker.example`](.env.docker.example).
 | `HIBP_DISABLED` | | `true` disables the breach check. Only for a host with no outbound internet — it fails closed, so without it nobody could register. |
 | `SOURCE_URL` | | Where this instance's source lives, shown in the footer. **Change it if you modify the code** — see [Licence](#licence). Defaults to the upstream repository. |
 | `PPP_REGISTRY` / `PPP_TAG` | | Which published image to run. Pin `PPP_TAG` to a release (`v0.1.0`) or a commit SHA; either is also how you roll back. |
+| `CF_TUNNEL_TOKEN` | | Connector token for `docker-compose.tunnel.yml`, from Cloudflare Zero Trust. A credential: anything holding it can serve the hostnames routed to that tunnel. See [Deploying behind a Cloudflare Tunnel](docs/deployment.md#deploying-behind-a-cloudflare-tunnel). |
 
 ## Deploying
 
@@ -176,6 +177,12 @@ The short version: pull a published image, put a reverse proxy in front, point
 docker compose --env-file .env.docker \
   -f docker-compose.prod.yml -f docker-compose.proxy.yml up -d
 ```
+
+On a connection whose public address is not yours to keep — a dynamic one, or
+none at all — `docker-compose.tunnel.yml` replaces the reverse proxy with a
+Cloudflare Tunnel connector that dials *outward*, so there is no port to
+forward and no `A` record to keep current. See
+[Deploying behind a Cloudflare Tunnel](docs/deployment.md#deploying-behind-a-cloudflare-tunnel).
 
 `docker-compose.prod.yml` **consumes** images rather than building them, so a
 deployment needs no source tree and no toolchain, and what runs there is
@@ -343,6 +350,17 @@ curl -sS -D - "http://your.host.example/.well-known/acme-challenge/probe" | head
 Behind Cloudflare's proxy, visitors see Cloudflare's certificate regardless, so
 an **Origin Certificate** plus SSL mode *Full (strict)* removes ACME from the
 picture entirely.
+
+**Every page loads and nothing works — sign-in included.**
+Cloudflare's **Rocket Loader** rewrites every `<script>` to load through its own
+deferred loader, and the rewritten tags do not carry the per-request CSP nonce
+this app's `script-src` requires. Hydration never happens, so no client-side code
+runs: the pages render from server HTML and look perfectly normal, but the
+sign-in form, the upload progress bar, the 3D viewer and the Activity menu all do
+nothing. The console shows CSP violations; the app's own logs show nothing at
+all, because the requests never reach it. Turn Rocket Loader off, globally or
+with a Configuration Rule scoped to the hostname — see
+[deployment](docs/deployment.md). Auto Minify and Brotli are fine.
 
 **Audit rows have no IP address.**
 `TRUST_PROXY_HEADERS` is unset or `false`, so nothing is trusted. Behind
