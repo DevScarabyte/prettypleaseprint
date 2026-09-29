@@ -77,7 +77,12 @@ export default async function QueuePage({
                 >
                   <div className="min-w-[220px] flex-[1_1_280px]">
                     <p className="m-0 font-mono text-[11.5px] font-bold tracking-[0.06em] text-ink-3">
-                      {storyRef(story.id)} · {story.filename} · {formatBytes(story.fileSize)}
+                      {storyRef(story.id)} ·{" "}
+                      {story.sourceType === "file" && story.filename && story.fileSize != null
+                        ? `${story.filename} · ${formatBytes(story.fileSize)}`
+                        : story.sourceType === "link"
+                          ? "linked model"
+                          : "described print"}
                     </p>
                     <Link
                       href={`/story/${story.id}`}
@@ -137,7 +142,7 @@ export default async function QueuePage({
                     {story.title}
                   </Link>
                   <p className="m-0 mt-[3px] font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">
-                    {story.filename} · {story.uploader.name} ·{" "}
+                    {story.filename ?? (story.sourceType === "link" ? "linked model" : "described print")} · {story.uploader.name} ·{" "}
                     {relativeTime(story.createdAt)}
                   </p>
                 </div>

@@ -18,6 +18,7 @@ import {
   MAX_UPLOAD_BYTES,
   formatBytes,
 } from "@/lib/upload-limits";
+import type { SourceType } from "@/lib/catalog";
 
 /** One owner-managed tip option, passed from the server (see upload/page.tsx). */
 type Benefit = { label: string; preferred: boolean };
@@ -89,6 +90,10 @@ export function UploadForm({
   const [dragging, setDragging] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
+  const [sourceType, setSourceType] = useState<SourceType>("file");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [description, setDescription] = useState("");
+
   const [title, setTitle] = useState("");
   const [material, setMaterial] = useState<string>(DEFAULT_MATERIAL);
   const [quantity, setQuantity] = useState<number>(1);
@@ -131,10 +136,33 @@ export function UploadForm({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || phase.kind === "uploading") return;
+    if (phase.kind === "uploading") return;
+
+    // Client-side checks are for fast feedback only — the server re-runs all
+    // of them and is the one that decides.
+    if (sourceType === "file" && !file) return;
+    if (sourceType === "link") {
+      try {
+        const u = new URL(sourceUrl.trim());
+        if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error();
+      } catch {
+        setPhase({ kind: "error", message: "That does not look like an http(s) link." });
+        return;
+      }
+    }
+    if (sourceType === "description" && description.trim().length < 10) {
+      setPhase({
+        kind: "error",
+        message: "Say a little more — what should it be, roughly how big?",
+      });
+      return;
+    }
 
     const body = new FormData();
-    body.set("file", file);
+    body.set("sourceType", sourceType);
+    if (sourceType === "file" && file) body.set("file", file);
+    body.set("sourceUrl", sourceType === "link" ? sourceUrl.trim() : "");
+    body.set("description", sourceType === "description" ? description.trim() : "");
     body.set("title", title);
     body.set("material", material);
     body.set("colorName", color);
@@ -188,72 +216,145 @@ export function UploadForm({
 
   return (
     <form onSubmit={submit} className="max-w-[780px]">
-      {/* ---- dropzone ---- */}
-      <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        /*
-         * focus-within, because the input it wraps is visually hidden and its
-         * own outline would be drawn on a 1px clipped box nobody can see. The
-         * label carries the visuals, so the label shows the focus. Same colour
-         * and offset as the global ring in globals.css.
-         */
-        className={`block cursor-pointer rounded-panel border-[3px] border-dashed px-[26.4px] py-[35.2px] text-center transition-colors focus-within:outline focus-within:outline-[3px] focus-within:outline-offset-2 focus-within:outline-cherry-dk ${
-          dragging
-            ? "border-ink bg-sun"
-            : "border-ink-3 bg-porcelain hover:border-ink hover:bg-sun-wash"
-        }`}
-      >
-        {/*
-         * sr-only, NOT hidden.
-         *
-         * This was `className="hidden"` — display:none — which takes the input
-         * out of the focus order entirely. A <label> is not focusable, so there
-         * was no tab stop anywhere that opened the file picker, and the submit
-         * button is disabled until a file is chosen. A keyboard or screen-reader
-         * user therefore could not upload anything at all: the app's primary
-         * function, unreachable, with no error and nothing to notice.
-         *
-         * sr-only clips it to a 1px box instead of removing it, so it stays
-         * focusable and operable (Space and Enter open the picker) while the
-         * dropzone above keeps every bit of the visual design.
-         */}
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".stl,.3mf,model/stl,model/3mf"
-          className="sr-only"
-          disabled={busy}
-          onChange={(e) => accept(e.target.files?.[0] ?? null)}
-        />
-        <span
-          aria-hidden
-          className="mx-auto mb-[13.2px] block h-[56px] w-[56px] rounded-full border-[3px] border-ink bg-aqua"
-        />
-        <span className="block font-display text-[19px] text-ink">
-          {file ? file.name : "Drop your .stl or .3mf here"}
-        </span>
-        <span className="mt-[6px] block font-mono text-[12px] uppercase tracking-[0.04em] text-ink-3">
-          {busy
-            ? `Uploading… ${phase.percent}%`
-            : file
-              ? `${formatBytes(file.size)} · checked on the server when you send it`
-              : `or click to choose a file · ${formatBytes(MAX_UPLOAD_BYTES)} max`}
-        </span>
+      {/* ---- how the model arrives: file, link, or description ---- */}
+      <div role="tablist" aria-label="How to share the model" className="flex flex-wrap gap-[8.8px]">
+        {(
+          [
+            { value: "file", label: "Upload a file" },
+            { value: "link", label: "Paste a link" },
+            { value: "description", label: "Describe it" },
+          ] as const
+        ).map((tab) => {
+          const active = sourceType === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => {
+                setSourceType(tab.value);
+                setPhase({ kind: "idle" });
+              }}
+              className={`stamp cursor-pointer rounded-chip border-[3px] border-ink px-[18px] py-[9px] text-[14px] font-bold transition-colors ${
+                active ? "bg-cherry-dk text-cream" : "bg-porcelain text-ink hover:bg-sun"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
 
-        {busy && (
-          <span className="mt-[13.2px] block h-[10px] overflow-hidden rounded-full border-[3px] border-ink bg-cream-2">
-            <span
-              className="block h-full bg-cherry transition-[width] duration-200"
-              style={{ width: `${phase.percent}%` }}
+      {sourceType === "file" && (
+        <>
+          {/* ---- dropzone ---- */}
+          <label
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            /*
+             * focus-within, because the input it wraps is visually hidden and its
+             * own outline would be drawn on a 1px clipped box nobody can see. The
+             * label carries the visuals, so the label shows the focus. Same colour
+             * and offset as the global ring in globals.css.
+             */
+            className={`mt-[13.2px] block cursor-pointer rounded-panel border-[3px] border-dashed px-[26.4px] py-[35.2px] text-center transition-colors focus-within:outline focus-within:outline-[3px] focus-within:outline-offset-2 focus-within:outline-cherry-dk ${
+              dragging
+                ? "border-ink bg-sun"
+                : "border-ink-3 bg-porcelain hover:border-ink hover:bg-sun-wash"
+            }`}
+          >
+            {/*
+             * sr-only, NOT hidden.
+             *
+             * This was `className="hidden"` — display:none — which takes the input
+             * out of the focus order entirely. A <label> is not focusable, so there
+             * was no tab stop anywhere that opened the file picker, and the submit
+             * button is disabled until a file is chosen. A keyboard or screen-reader
+             * user therefore could not upload anything at all: the app's primary
+             * function, unreachable, with no error and nothing to notice.
+             *
+             * sr-only clips it to a 1px box instead of removing it, so it stays
+             * focusable and operable (Space and Enter open the picker) while the
+             * dropzone above keeps every bit of the visual design.
+             */}
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".stl,.3mf,model/stl,model/3mf"
+              className="sr-only"
+              disabled={busy}
+              onChange={(e) => accept(e.target.files?.[0] ?? null)}
             />
-          </span>
-        )}
-      </label>
+            <span
+              aria-hidden
+              className="mx-auto mb-[13.2px] block h-[56px] w-[56px] rounded-full border-[3px] border-ink bg-aqua"
+            />
+            <span className="block font-display text-[19px] text-ink">
+              {file ? file.name : "Drop your .stl or .3mf here"}
+            </span>
+            <span className="mt-[6px] block font-mono text-[12px] uppercase tracking-[0.04em] text-ink-3">
+              {busy
+                ? `Uploading… ${phase.percent}%`
+                : file
+                  ? `${formatBytes(file.size)} · checked on the server when you send it`
+                  : `or click to choose a file · ${formatBytes(MAX_UPLOAD_BYTES)} max`}
+            </span>
+
+            {busy && (
+              <span className="mt-[13.2px] block h-[10px] overflow-hidden rounded-full border-[3px] border-ink bg-cream-2">
+                <span
+                  className="block h-full bg-cherry transition-[width] duration-200"
+                  style={{ width: `${phase.percent}%` }}
+                />
+              </span>
+            )}
+          </label>
+        </>
+      )}
+
+      {sourceType === "link" && (
+        <div className="mt-[13.2px] rounded-panel border-[3px] border-ink bg-porcelain p-[22px]">
+          <Label htmlFor="sourceUrl">Link to the model</Label>
+          <input
+            id="sourceUrl"
+            type="url"
+            inputMode="url"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            maxLength={2000}
+            placeholder="https://www.printables.com/model/…"
+            className="w-full rounded-card border-[3px] border-ink bg-cream px-[15px] py-[12px] font-mono text-[15px] text-ink placeholder:text-ink-3"
+          />
+          <p className="m-0 mt-[8px] text-[14px] leading-[1.5] text-ink-2">
+            Printables, Thingiverse, MakerWorld — anywhere {owner} can fetch it.
+            No account of yours is ever touched.
+          </p>
+        </div>
+      )}
+
+      {sourceType === "description" && (
+        <div className="mt-[13.2px] rounded-panel border-[3px] border-ink bg-porcelain p-[22px]">
+          <Label htmlFor="description">Describe the print you want</Label>
+          <textarea
+            id="description"
+            rows={5}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={4000}
+            placeholder="A hook that slides onto the 25 mm monitor arm, about 60 mm long, needs to hold a pair of headphones…"
+            className="w-full resize-y rounded-card border-[3px] border-ink bg-cream px-[15px] py-[12px] text-[16px] leading-[1.5] text-ink placeholder:text-ink-3"
+          />
+          <p className="m-0 mt-[8px] text-[14px] leading-[1.5] text-ink-2">
+            What it is, roughly how big, what it has to survive. {owner} draws
+            the model from this — the more concrete, the fewer questions.
+          </p>
+        </div>
+      )}
 
       {phase.kind === "error" && (
         <div className="mt-[13.2px]">
@@ -434,14 +535,29 @@ export function UploadForm({
 
       {/* ---- actions ---- */}
       <div className="mt-[26.4px] flex flex-wrap items-center gap-[13.2px]">
-        <Button type="submit" disabled={!file || busy} className="px-[30px]">
+        <Button
+          type="submit"
+          disabled={
+            busy ||
+            (sourceType === "file" && !file) ||
+            (sourceType === "link" && !sourceUrl.trim()) ||
+            (sourceType === "description" && description.trim().length < 10)
+          }
+          className="px-[30px]"
+        >
           {busy ? `Sending… ${phase.percent}%` : `Send it to ${owner}`}
         </Button>
         <Button type="button" variant="ghost" onClick={() => router.push("/board")}>
           Cancel
         </Button>
-        {!file && (
+        {sourceType === "file" && !file && (
           <span className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-ink-3">Pick a file to continue.</span>
+        )}
+        {sourceType === "link" && !sourceUrl.trim() && (
+          <span className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-ink-3">Paste a link to continue.</span>
+        )}
+        {sourceType === "description" && description.trim().length < 10 && (
+          <span className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-ink-3">Describe it in a sentence or two.</span>
         )}
       </div>
     </form>

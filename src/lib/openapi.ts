@@ -103,8 +103,13 @@ const STORY_SCHEMA = {
     },
     tip: { type: "string", enum: [...TIPS] },
     note: { type: "string" },
+    printSettings: { type: "string" },
+    sourceType: { type: "string", enum: ["file", "link", "description"] },
+    sourceUrl: { type: ["string", "null"] },
+    description: { type: "string" },
     file: {
-      type: "object",
+      type: ["object", "null"],
+      description: "Null for link / description tickets, which carry no bytes.",
       properties: {
         filename: { type: "string", examples: ["clip.stl"] },
         size: { type: "integer", description: "Bytes." },
@@ -754,12 +759,14 @@ export async function buildOpenApiDocument() {
       "/api/upload": {
         post: {
           tags: ["files"],
-          summary: "Upload a model and open a request",
+          summary: "Open a request — file, link, or description",
           description:
-            `Multipart, because it carries up to ${formatBytes(MAX_BYTES)} of ` +
-            `geometry. ${ACCEPTED_EXTENSIONS.join(" and ")} only, and the ` +
-            "decision is made on the **bytes**, not the filename — an STL " +
-            "renamed `.3mf` is refused, and so is anything that is neither.\n\n" +
+            `Multipart. \`sourceType\` picks how the model arrives: \`file\` ` +
+            `carries up to ${formatBytes(MAX_BYTES)} of geometry ` +
+            `(${ACCEPTED_EXTENSIONS.join(" and ")} only, judged on the ` +
+            "**bytes**, not the filename); `link` carries a `sourceUrl` to a " +
+            "model hosted elsewhere; `description` carries a written brief in " +
+            "`description` when there is no model yet.\n\n" +
             "Order matters: nothing reaches storage until the file has been " +
             "inspected, and no ticket exists until the object is in place. A " +
             "refused upload therefore leaves nothing behind.\n\n" +
@@ -774,12 +781,24 @@ export async function buildOpenApiDocument() {
                     { $ref: "#/components/schemas/Wish" },
                     {
                       type: "object",
-                      required: ["file"],
                       properties: {
+                        sourceType: {
+                          type: "string",
+                          enum: ["file", "link", "description"],
+                          default: "file",
+                        },
                         file: {
                           type: "string",
                           format: "binary",
-                          description: `The model. At most ${formatBytes(MAX_BYTES)}.`,
+                          description: `The model (sourceType=file). At most ${formatBytes(MAX_BYTES)}.`,
+                        },
+                        sourceUrl: {
+                          type: "string",
+                          description: "Link to the model (sourceType=link).",
+                        },
+                        description: {
+                          type: "string",
+                          description: "What to print (sourceType=description).",
                         },
                       },
                     },

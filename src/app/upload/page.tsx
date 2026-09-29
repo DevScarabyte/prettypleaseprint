@@ -30,8 +30,9 @@ export default async function UploadPage() {
           </h1>
           <p className="m-0 mb-[26.4px] text-[16.5px] leading-[1.5] text-ink-2 text-pretty">
             Drop an <span className="font-mono">.stl</span> or{" "}
-            <span className="font-mono">.3mf</span>. {owner} gets a ping, and
-            your order goes up on the rail as a ticket you can follow.
+            <span className="font-mono">.3mf</span>, paste a link to a model, or
+            just describe what you want. {owner} gets a ping, and your order
+            goes up on the rail as a ticket you can follow.
           </p>
         </div>
         <UploadForm owner={owner} benefits={benefits} />

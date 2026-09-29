@@ -56,37 +56,85 @@ export default async function StoryPage({
         </Link>
 
         <div className="mt-[13.2px] grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] items-start gap-[26.4px]">
-          {/* ---------- left: the file ---------- */}
+          {/* ---------- left: the model (or the link / description) ---------- */}
           <div>
-            <ModelViewer
-              storyId={story.id}
-              filename={story.filename}
-              colorHex={story.colorHex}
-              dims={story.dims}
-              fileSize={story.fileSize}
-            />
+            {story.sourceType === "link" ? (
+              <div className="rounded-panel border-[3px] border-ink bg-porcelain p-[22px] shadow-stamp-lg">
+                <p className="m-0 font-mono text-[11.5px] font-bold uppercase tracking-[0.12em] text-ink-3">
+                  Linked model
+                </p>
+                {story.sourceUrl &&
+                /^https?:\/\//i.test(story.sourceUrl) ? (
+                  <>
+                    <a
+                      href={story.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-[8px] block break-all font-mono text-[15px] font-bold text-cherry-dk underline underline-offset-4 hover:text-cherry"
+                    >
+                      {story.sourceUrl}
+                    </a>
+                    <p className="m-0 mt-[8px] text-[14px] leading-[1.5] text-ink-2">
+                      {owner} fetches the file from there — no preview until
+                      they do.
+                    </p>
+                  </>
+                ) : (
+                  <p className="m-0 mt-[8px] text-[14px] leading-[1.5] text-ink-2">
+                    The link for this one is missing.
+                  </p>
+                )}
+              </div>
+            ) : story.sourceType === "description" ? (
+              <div className="rounded-panel border-[3px] border-ink bg-porcelain p-[22px] shadow-stamp-lg">
+                <p className="m-0 font-mono text-[11.5px] font-bold uppercase tracking-[0.12em] text-ink-3">
+                  What they described
+                </p>
+                <p className="m-0 mt-[8px] whitespace-pre-wrap text-[16px] leading-[1.55] text-ink">
+                  {story.description || "No description was kept."}
+                </p>
+              </div>
+            ) : (
+              <>
+                {story.filename && story.fileSize != null && (
+                  <>
+                    <ModelViewer
+                      storyId={story.id}
+                      filename={story.filename}
+                      colorHex={story.colorHex}
+                      dims={story.dims}
+                      fileSize={story.fileSize}
+                    />
 
-            {/* Both measured from the file itself. Nothing inferred. */}
-            <div className="mt-[13.2px] flex flex-wrap gap-[8px]">
-              {[story.dims ?? "dimensions unknown", formatBytes(story.fileSize)].map((v) => (
-                <span
-                  key={v}
-                  className="rounded-chip border-2 border-ink bg-porcelain px-[11px] py-[3px] font-mono text-[12px] font-bold text-ink"
-                >
-                  {v}
-                </span>
-              ))}
-            </div>
+                    {/* Both measured from the file itself. Nothing inferred. */}
+                    <div className="mt-[13.2px] flex flex-wrap gap-[8px]">
+                      {[story.dims ?? "dimensions unknown", formatBytes(story.fileSize)].map((v) => (
+                        <span
+                          key={v}
+                          className="rounded-chip border-2 border-ink bg-porcelain px-[11px] py-[3px] font-mono text-[12px] font-bold text-ink"
+                        >
+                          {v}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
 
             {/* Send the model to a PrusaSlicer on the viewer's own machine.
                 The bytes are fetched by a local helper, not by the slicer —
                 see the component and docs/prusaslicer.md for why. */}
             {/* The plain way to get the bytes — no helper, any machine. Kept
                 above the slicer control so the simple answer is the visible
-                one. */}
-            <DownloadModel storyId={story.id} filename={story.filename} />
+                one. Only file tickets have bytes to offer. */}
+            {story.sourceType === "file" && story.filename && (
+              <>
+                <DownloadModel storyId={story.id} filename={story.filename} />
 
-            <OpenInSlicer storyId={story.id} userId={user.id} />
+                <OpenInSlicer storyId={story.id} userId={user.id} />
+              </>
+            )}
 
             <Conversation
               storyId={story.id}

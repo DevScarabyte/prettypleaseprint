@@ -179,13 +179,19 @@ export function storyResource(story: StoryRow) {
     color: { name: story.colorName, hex: story.colorHex },
     tip: story.tip,
     note: story.note,
-    file: {
-      filename: story.filename,
-      size: story.fileSize,
-      mimeType: story.mimeType,
-      dims: story.dims,
-      url: `/api/models/${story.id}`,
-    },
+    printSettings: story.printSettings,
+    sourceType: story.sourceType,
+    sourceUrl: story.sourceUrl,
+    description: story.description,
+    file: story.filename
+      ? {
+          filename: story.filename,
+          size: story.fileSize,
+          mimeType: story.mimeType,
+          dims: story.dims,
+          url: `/api/models/${story.id}`,
+        }
+      : null,
     uploader: {
       id: story.uploader.id,
       name: story.uploader.name,

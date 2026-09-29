@@ -242,8 +242,8 @@ export async function mix(): Promise<Mix> {
       .sort((a, b) => b.count - a.count),
     sizes: buckets.map((b) => ({
       label: b.label,
-      count: sizes.filter((s) => b.test(s.fileSize)).length,
+      count: sizes.filter((s) => s.fileSize != null && b.test(s.fileSize)).length,
     })),
-    largestBytes: sizes.reduce((m, s) => Math.max(m, s.fileSize), 0),
+    largestBytes: sizes.reduce((m, s) => Math.max(m, s.fileSize ?? 0), 0),
   };
 }

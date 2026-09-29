@@ -168,7 +168,7 @@ export default async function ProfilePage() {
                     {story.title}
                   </Link>
                   <p className="m-0 mt-[3px] font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">
-                    {storyRef(story.id)} · {story.filename}
+                    {storyRef(story.id)} · {story.filename ?? (story.sourceType === "link" ? "linked model" : story.sourceType === "description" ? "described print" : "")}
                     {isAdmin ? ` · ${story.uploader.name}` : ""} ·{" "}
                     {relativeTime(story.createdAt)}
                   </p>

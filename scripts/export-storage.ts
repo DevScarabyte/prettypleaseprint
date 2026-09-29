@@ -167,10 +167,11 @@ async function writeAtomically(finalPath: string, body: Readable): Promise<void>
   }
 }
 
-type Row = { id: number; storageKey: string; filename: string; fileSize: number };
+type Row = { id: number; storageKey: string | null; filename: string | null; fileSize: number | null };
 
 /** Already there, right size, and plausibly a model? Then leave it alone. */
 async function alreadyGood(row: Row): Promise<boolean> {
+  if (!row.storageKey || row.fileSize == null) return true; // link / description tickets own no object
   try {
     const info = await stat(pathFor(row.storageKey));
     if (!info.isFile() || info.size !== row.fileSize) return false;
@@ -181,6 +182,7 @@ async function alreadyGood(row: Row): Promise<boolean> {
 }
 
 async function exportOne(row: Row): Promise<void> {
+  if (!row.storageKey) throw new Error("link / description tickets own no object");
   const object = await s3.send(
     new GetObjectCommand({ Bucket: BUCKET, Key: row.storageKey }),
   );
@@ -265,6 +267,7 @@ async function main() {
   let verified = 0;
 
   for (const row of rows) {
+    if (!row.storageKey || row.fileSize == null) continue; // link / description tickets own no object
     let info;
     try {
       info = await stat(pathFor(row.storageKey));
@@ -291,7 +294,7 @@ async function main() {
   let orphans = 0;
   try {
     const keys = await listAllKeys();
-    const referenced = new Set(rows.map((r) => r.storageKey));
+    const referenced = new Set(rows.map((r) => r.storageKey).filter((k): k is string => !!k));
     for (const k of keys) if (!referenced.has(k)) orphans++;
   } catch {
     orphans = -1;

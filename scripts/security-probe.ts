@@ -337,7 +337,7 @@ async function main() {
   probe("A01-upload-status", "a posted status is ignored; new stories are Requested",
         spoofed?.status === "Requested", String(spoofed?.status));
   probe("A02-storage-key", "the storage key is generated, not taken from the filename",
-        !!spoofed && !spoofed.storageKey.includes("spoof"),
+        !!spoofed && !!spoofed.storageKey && !spoofed.storageKey.includes("spoof"),
         spoofed?.storageKey ?? "");
 
   // -------------------------------------------------------------------

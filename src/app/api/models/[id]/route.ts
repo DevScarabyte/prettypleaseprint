@@ -86,7 +86,7 @@ export async function GET(
     select: { id: true, filename: true, mimeType: true, storageKey: true, uploaderId: true },
   });
 
-  if (!story) {
+  if (!story || !story.storageKey || !story.filename) {
     // A refused fetch is the event worth keeping. Someone walking ids looking
     // for other people's models leaves a trail; the owner opening their own
     // ticket does not need to.

@@ -148,6 +148,7 @@ function stlOfSize(mb: number): Uint8Array {
 
 function upload(b: Browser, filename: string, bytes: Uint8Array, fields: Record<string, string> = {}) {
   const form = new FormData();
+  form.set("sourceType", "file");
   form.set("file", new File([bytes as BlobPart], filename));
   form.set("title", fields.title ?? "Hook for the monitor arm");
   form.set("material", fields.material ?? "PETG");
@@ -155,6 +156,22 @@ function upload(b: Browser, filename: string, bytes: Uint8Array, fields: Record<
   form.set("quantity", fields.quantity ?? "2");
   form.set("tip", fields.tip ?? "A beer");
   form.set("note", fields.note ?? "No rush.");
+  form.set("printSettings", fields.printSettings ?? "");
+  return b.raw(`${APP}/api/upload`, { method: "POST", body: form });
+}
+
+/** A link or description request: no bytes, just the wish plus the source. */
+function requestWithoutFile(b: Browser, fields: Record<string, string>) {
+  const form = new FormData();
+  form.set("sourceType", fields.sourceType ?? "link");
+  form.set("sourceUrl", fields.sourceUrl ?? "");
+  form.set("description", fields.description ?? "");
+  form.set("title", fields.title ?? "");
+  form.set("material", fields.material ?? "PETG");
+  form.set("colorName", fields.colorName ?? "Slate");
+  form.set("quantity", fields.quantity ?? "1");
+  form.set("tip", fields.tip ?? "A beer");
+  form.set("note", fields.note ?? "");
   form.set("printSettings", fields.printSettings ?? "");
   return b.raw(`${APP}/api/upload`, { method: "POST", body: form });
 }
@@ -228,13 +245,13 @@ async function main() {
         JSON.stringify({ m: story?.material, q: story?.quantity, c: story?.colorName }));
 
   check("the storage key is generated, not derived from the filename",
-        !!story && !story.storageKey.includes("monitor-hook") &&
+        !!story && !!story.storageKey && !story.storageKey.includes("monitor-hook") &&
         /^models\/\d{4}-\d{2}\/[0-9a-f-]{36}\.stl$/.test(story.storageKey),
         story?.storageKey ?? "");
 
   let storedBytes = 0;
   try {
-    storedBytes = (await stat(pathForKey(story!.storageKey))).size;
+    storedBytes = (await stat(pathForKey(story!.storageKey!))).size;
   } catch {
     storedBytes = -1;
   }
@@ -461,7 +478,7 @@ async function main() {
 
   // `story` is Ayla's real upload from the top of this run — a genuine object
   // in the bucket, which is exactly what re-queue has to copy.
-  const beforeKey = (await db.story.findUnique({ where: { id: story!.id } }))!.storageKey;
+  const beforeKey = (await db.story.findUnique({ where: { id: story!.id } }))!.storageKey!;
   const rqPage = rendered(await (await aylaB.go(`${APP}/story/${story!.id}`)).text());
   check("the story page offers Print again", rqPage.includes("no re-upload"));
   const posted = await submitForm(aylaB, `${APP}/story/${story!.id}`, rqPage, "no re-upload", {
@@ -491,7 +508,7 @@ async function main() {
     try { return (await stat(pathForKey(key))).isFile(); }
     catch { return false; }
   };
-  check("the copied file really landed on disk", await fileExists(copy!.storageKey));
+  check("the copied file really landed on disk", !!copy!.storageKey && await fileExists(copy!.storageKey!));
   // Withdraw the copy (through the DELETE route it delegates to) and confirm
   // the original's file survives — proof the copy is genuinely independent.
   const del = await aylaB.raw(`${APP}/api/stories/${newId}`, { method: "DELETE" });
@@ -526,6 +543,46 @@ async function main() {
   check("an upload with no print settings still works", noPS.status < 300, `status ${noPS.status}`);
   const plain = await db.story.findFirst({ where: { title: "No settings here" } });
   check("and its print settings default to empty", plain?.printSettings === "", JSON.stringify(plain?.printSettings));
+
+  section("a link or a description opens a ticket with no bytes");
+
+  const linkRes = await requestWithoutFile(aylaB, {
+    sourceType: "link", title: "Cable chain from Printables",
+    sourceUrl: "https://www.printables.com/model/12345-cable-chain",
+  });
+  const linkPayload = linkRes.status < 300 ? await linkRes.json() : { error: await linkRes.text() };
+  check("a link request is accepted", linkRes.status < 300, `status ${linkRes.status} ${JSON.stringify(linkPayload).slice(0, 140)}`);
+  const linked = await db.story.findFirst({ where: { title: "Cable chain from Printables" } });
+  check("it is stored as a link with no file",
+        linked?.sourceType === "link" && linked?.storageKey === null && linked?.fileSize === null,
+        JSON.stringify({ t: linked?.sourceType, k: linked?.storageKey }));
+  check("and the URL is kept",
+        linked?.sourceUrl === "https://www.printables.com/model/12345-cable-chain", linked?.sourceUrl ?? "");
+  const linkedPage = await (await aylaB.go(`${APP}/story/${linked!.id}`)).text();
+  check("the ticket shows the link, not a viewer",
+        linkedPage.includes("Linked model") && linkedPage.includes("printables.com"));
+
+  const badLink = await requestWithoutFile(aylaB, { sourceType: "link", title: "Bad link", sourceUrl: "not a url" });
+  check("a nonsense link is refused with 400", badLink.status === 400, `got ${badLink.status}`);
+
+  const descRes = await requestWithoutFile(aylaB, {
+    sourceType: "description", title: "Headphone hook",
+    description: "A hook for a 25 mm monitor arm, about 60 mm long, holds headphones.",
+  });
+  check("a description request is accepted", descRes.status < 300, `status ${descRes.status}`);
+  const described = await db.story.findFirst({ where: { title: "Headphone hook" } });
+  check("it is stored with its description and no file",
+        described?.sourceType === "description" && described?.description.startsWith("A hook") &&
+        described?.storageKey === null,
+        JSON.stringify({ t: described?.sourceType, d: described?.description?.slice(0, 20) }));
+  const descPage = await (await aylaB.go(`${APP}/story/${described!.id}`)).text();
+  check("the ticket shows the description", descPage.includes("What they described") && descPage.includes("25 mm monitor arm"));
+
+  const shortDesc = await requestWithoutFile(aylaB, { sourceType: "description", title: "Too short", description: "hook" });
+  check("a one-word description is refused with 400", shortDesc.status === 400, `got ${shortDesc.status}`);
+
+  const noFile = await aylaB.raw(`${APP}/api/models/${linked!.id}`);
+  check("a link ticket has no bytes to fetch (404, not 500)", noFile.status === 404, `got ${noFile.status}`);
 
     section("the audit trail reads correctly");
 

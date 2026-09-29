@@ -33,7 +33,7 @@ export function RequeueStory({
         <button
           type="submit"
           aria-label={`Print ${label} again`}
-          title="Opens a fresh request from the same file — no re-upload"
+          title="Opens a fresh request from the same model — no re-upload"
           className="stamp inline-flex cursor-pointer items-center gap-[6px] rounded-chip border-[3px] border-ink bg-aqua px-[13.2px] py-[6px] text-[13px] font-bold text-ink hover:bg-sun"
         >
           <span aria-hidden className="font-mono text-[14px] leading-none">↻</span>
@@ -56,7 +56,7 @@ export function RequeueStory({
         Print {label} again
       </button>
       <p className="m-0 mt-[6px] font-mono text-[11px] leading-[1.5] text-ink-3">
-        Opens a fresh request from the same file — no re-upload.
+        Opens a fresh request from the same model — no re-upload.
       </p>
     </form>
   );

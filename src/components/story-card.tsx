@@ -47,6 +47,16 @@ export function StoryCard({
           <span className="whitespace-nowrap font-mono text-[12px] font-bold tracking-[0.08em] text-ink-3">
             {storyRef(story.id)}
           </span>
+          {"sourceType" in story && (story as { sourceType?: string }).sourceType === "link" && (
+            <span className="rounded-chip border-2 border-ink bg-aqua-wash px-[8px] py-[1px] font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-ink">
+              link
+            </span>
+          )}
+          {"sourceType" in story && (story as { sourceType?: string }).sourceType === "description" && (
+            <span className="rounded-chip border-2 border-ink bg-sun-wash px-[8px] py-[1px] font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-ink">
+              described
+            </span>
+          )}
           {story.flagged && (
             <span className="rounded-chip border-2 border-ink bg-cherry px-[8px] py-[1px] font-mono text-[10.5px] font-bold uppercase tracking-[0.06em] text-ink">
               needs a look

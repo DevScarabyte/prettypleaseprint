@@ -258,6 +258,12 @@ enum Material {
   Resin
 }
 
+enum SourceType {
+  file
+  link
+  description
+}
+
 model Story {
   /// Autoincrement so the display ref stays "PPP-" + (100 + id).
   id     Int         @id @default(autoincrement())
@@ -283,11 +289,18 @@ model Story {
   flagged    Boolean @default(false)
   flagReason String?
 
+  // --- where the model comes from. A ticket is filed with a file, a link
+  // to a model elsewhere, or a written description of what is wanted. ---
+  sourceType  SourceType @default(file)
+  sourceUrl   String?
+  description String     @default("")
+
   // --- uploaded asset. Bytes live in object storage, never the web root. ---
-  filename   String
-  fileSize   Int
-  mimeType   String
-  storageKey String
+  // Null for link / description tickets, which carry no bytes of their own.
+  filename   String?
+  fileSize   Int?
+  mimeType   String?
+  storageKey String?
 
   // --- measured from the mesh at upload time, display only ---
   //

@@ -32,6 +32,33 @@ export const TIPS = [
 ] as const;
 export const DEFAULT_TIP = TIPS[0];
 
+export const SOURCE_TYPES = ["file", "link", "description"] as const;
+export type SourceType = (typeof SOURCE_TYPES)[number];
+
+/** A link to a model hosted elsewhere (Printables, Thingiverse, …). */
+export const SourceUrlSchema = z
+  .string()
+  .trim()
+  .min(1, "Paste the link to the model.")
+  .max(2000, "That link is very long.")
+  .refine((v) => {
+    try {
+      const u = new URL(v);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "That does not look like an http(s) link.");
+
+/** A written description of what is wanted, when there is no file (yet). */
+export const DescriptionSchema = z
+  .string()
+  .trim()
+  .min(10, "Say a little more — what should it be, roughly how big?")
+  .max(4000, "That description is very long.");
+
+export const SourceSchema = z.enum(SOURCE_TYPES);
+
 /** Shortcut quantities. A typed number is accepted too — see `QuantitySchema`. */
 export const QUANTITY_PRESETS = [1, 2, 3, 4, 6] as const;
 

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { currentUser, notify, printerOwner, storyRef } from "@/lib/authz";
 import type { Actor } from "@/lib/scope";
 import { record } from "@/lib/audit";
-import { WishSchema, hexForColor } from "@/lib/catalog";
+import { WishSchema, hexForColor, SourceSchema, SourceUrlSchema, DescriptionSchema } from "@/lib/catalog";
 import { activeBenefitLabels } from "@/lib/benefits";
 import {
   MAX_BYTES,
@@ -119,9 +119,9 @@ async function handleUpload(request: Request, user: Actor) {
     return bad(400, "That upload did not arrive intact. Try again.");
   }
 
-  const file = form.get("file");
-  if (!(file instanceof File)) return bad(400, "No file was attached.");
-  if (file.size > MAX_BYTES) return bad(413, REJECTION_COPY.too_large);
+  const sourceType = SourceSchema.safeParse(form.get("sourceType") ?? "file");
+  if (!sourceType.success) return bad(400, "Pick how to share the model.");
+  const kind = sourceType.data;
 
   const wish = WishSchema.safeParse({
     title: form.get("title") ?? "",
@@ -145,6 +145,96 @@ async function handleUpload(request: Request, user: Actor) {
   if (allowedTips.length > 0 && !allowedTips.includes(wish.data.tip)) {
     return bad(400, "That is not a benefit on offer — pick one from the list.");
   }
+
+  // ---- link or description: no bytes, no storage, no inspection ----
+  if (kind === "link" || kind === "description") {
+    const rawUrl = kind === "link" ? String(form.get("sourceUrl") ?? "") : "";
+    const rawDescription =
+      kind === "description" ? String(form.get("description") ?? "") : "";
+
+    if (kind === "link") {
+      const parsed = SourceUrlSchema.safeParse(rawUrl);
+      if (!parsed.success) {
+        return bad(400, parsed.error.issues[0]?.message ?? "Check the link.");
+      }
+    } else {
+      const parsed = DescriptionSchema.safeParse(rawDescription);
+      if (!parsed.success) {
+        return bad(400, parsed.error.issues[0]?.message ?? "Check the description.");
+      }
+    }
+
+    const sourceUrl = kind === "link" ? rawUrl.trim() : null;
+    const description = kind === "description" ? rawDescription.trim() : "";
+    const fallbackTitle =
+      kind === "link"
+        ? (() => {
+            try {
+              return new URL(sourceUrl!).hostname.replace(/^www\./, "");
+            } catch {
+              return "Linked model";
+            }
+          })()
+        : description.slice(0, 60).split(/\n/)[0] || "Described print";
+    const title = wish.data.title || fallbackTitle;
+
+    let story;
+    try {
+      story = await db.story.create({
+        data: {
+          title,
+          uploaderId: user.id,
+          status: "Requested",
+          quantity: wish.data.quantity,
+          material: wish.data.material,
+          colorName: wish.data.colorName,
+          colorHex: hexForColor(wish.data.colorName),
+          tip: wish.data.tip,
+          note: wish.data.note,
+          printSettings: wish.data.printSettings,
+          sourceType: kind,
+          sourceUrl,
+          description,
+          filename: null,
+          fileSize: null,
+          mimeType: null,
+          storageKey: null,
+          dims: null,
+        },
+      });
+    } catch (error) {
+      console.error("[upload] story insert failed", error);
+      return bad(500, "The request could not be saved. Try again.");
+    }
+
+    const admin = await printerOwner();
+    if (admin) {
+      await notify({
+        recipientId: admin.id,
+        storyId: story.id,
+        text: `${user.name} requested “${title}”.`,
+      });
+    }
+
+    await record({
+      action: "story.created",
+      actor: user,
+      subject: storyRef(story.id),
+      detail: {
+        title,
+        sourceType: kind,
+        ...(kind === "link" ? { sourceUrl } : { descriptionLength: description.length }),
+        material: wish.data.material,
+        quantity: wish.data.quantity,
+      },
+    });
+
+    return NextResponse.json({ id: story.id, ref: storyRef(story.id), title, dims: null });
+  }
+
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return bad(400, "No file was attached.");
+  if (file.size > MAX_BYTES) return bad(413, REJECTION_COPY.too_large);
 
   const filename = safeFilename(file.name);
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -193,6 +283,9 @@ async function handleUpload(request: Request, user: Actor) {
         tip: wish.data.tip,
         note: wish.data.note,
         printSettings: wish.data.printSettings,
+        sourceType: "file",
+        sourceUrl: null,
+        description: "",
         filename,
         fileSize: bytes.length,
         mimeType: MIME_FOR[extension] ?? "application/octet-stream",
