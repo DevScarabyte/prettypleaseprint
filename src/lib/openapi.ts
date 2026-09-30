@@ -507,6 +507,49 @@ export async function buildOpenApiDocument() {
             ...COMMON_ERRORS,
           },
         },
+        patch: {
+          tags: ["stories"],
+          summary: "Rename a ticket",
+          description:
+            "The person who asked for it, or the printer owner — anybody " +
+            "else gets the same `404` as a read, for the same reason. " +
+            "Allowed at any status; audited, but deliberately not notified.",
+          parameters: [storyIdParam],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["title"],
+                  properties: {
+                    title: {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 120,
+                      examples: ["Hook for the monitor arm"],
+                    },
+                  },
+                },
+                example: { title: "Hook for the monitor arm" },
+              },
+            },
+          },
+          responses: {
+            "200": storyResponse("Renamed.", {
+              renamed: {
+                type: "object",
+                properties: {
+                  to: { type: "string" },
+                  unchanged: { type: "boolean" },
+                },
+              },
+            }),
+            "400": errorResponse("Empty, or longer than 120 characters."),
+            "404": errorResponse("No such ticket, or not one you may see."),
+            ...COMMON_ERRORS,
+          },
+        },
       },
 
       "/api/stories/{id}/advance": {
@@ -541,9 +584,9 @@ export async function buildOpenApiDocument() {
           tags: ["queue"],
           summary: "Decline a request",
           description:
-            "Terminal, and reachable only from `Requested`. Once the printer " +
-            "owner has said yes, saying no is a conversation rather than a " +
-            "state change.",
+            "Terminal, and reachable from `Requested` or `Accepted`. Saying " +
+            "yes does not lock the printer owner in; once the bed is " +
+            "committed, saying no is a conversation rather than a state change.",
           parameters: [storyIdParam],
           responses: {
             "200": storyResponse("Declined, and the uploader was told.", {
@@ -854,6 +897,63 @@ export async function buildOpenApiDocument() {
             "401": { description: "No session." },
             "404": { description: "No such ticket, or not one you may see." },
             "502": { description: "Object storage did not answer." },
+          },
+        },
+      },
+
+      "/api/stories/{id}/model": {
+        post: {
+          tags: ["files"],
+          summary: "Attach the printable model (printer owner)",
+          description:
+            "How a link or description request becomes printable: the owner " +
+            "fetches the file from the link (or draws what was described) " +
+            "and attaches the bytes here. Replacing the file on a file " +
+            "ticket works the same way; the link or description it arrived " +
+            "with is kept.\n\n" +
+            "Allowed once the request is approved (`Accepted`, `Printing`, " +
+            "`Delivery`). The bytes go through the same inspection as an " +
+            "upload, the uploader is told, and the previous object — if " +
+            "any — is removed once the ticket row commits.",
+          parameters: [storyIdParam],
+          requestBody: {
+            required: true,
+            content: {
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  required: ["file"],
+                  properties: {
+                    file: {
+                      type: "string",
+                      format: "binary",
+                      description: `The model. At most ${formatBytes(MAX_BYTES)}.`,
+                    },
+                  },
+                },
+                encoding: { file: { contentType: "application/octet-stream" } },
+              },
+            },
+          },
+          responses: {
+            "200": storyResponse("Attached, and the uploader was told.", {
+              attached: {
+                type: "object",
+                properties: {
+                  filename: { type: "string" },
+                  dims: { type: ["string", "null"] },
+                },
+              },
+              notified: { type: "string" },
+            }),
+            "400": errorResponse("No file attached."),
+            "403": errorResponse("Only the printer owner attaches a model."),
+            "404": errorResponse("No such ticket."),
+            "409": errorResponse("Not approved yet, or already terminal — there is nothing to attach a model to."),
+            "413": errorResponse("Larger than the cap."),
+            "422": errorResponse("The bytes are not an acceptable model. The reason says which check failed."),
+            "502": errorResponse("Object storage would not take it. Nothing was saved."),
+            ...COMMON_ERRORS,
           },
         },
       },

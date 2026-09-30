@@ -15,8 +15,20 @@ import {
   storyScope,
   type Actor,
 } from "@/lib/scope";
-import { copyModel, deleteModel, storageKeyFor } from "@/lib/storage";
-import { extensionOf } from "@/lib/models";
+import {
+  MIME_FOR,
+  copyModel,
+  deleteModel,
+  putModel,
+  storageKeyFor,
+} from "@/lib/storage";
+import {
+  MAX_BYTES,
+  REJECTION_COPY,
+  extensionOf,
+  inspectModel,
+  safeFilename,
+} from "@/lib/models";
 
 /**
  * Everything that can happen to a ticket, in one place.
@@ -35,7 +47,7 @@ import { extensionOf } from "@/lib/models";
  *   1. Role is checked on every call. Not rendering a button is not
  *      authorisation, and neither is not documenting an endpoint.
  *   2. Transitions go through `assertTransition` — forwards, one step, and
- *      `Declined` only from `Requested`.
+ *      `Declined` from `Requested` or `Accepted`.
  *   3. The uploader is told. That is the whole point of the Activity panel.
  *   4. An audit row is written *after* the change commits, so the trail
  *      cannot claim something that did not happen.
@@ -350,8 +362,11 @@ export async function advanceStory(actor: Actor, id: number) {
 }
 
 /**
- * Decline. Terminal, and only reachable from `Requested` — once the printer
- * owner has said yes, saying no is a conversation, not a state change.
+ * Decline. Terminal, and reachable from `Requested` or `Accepted` — saying
+ * yes does not lock the printer owner in when a closer look at the model
+ * (or the link, or the description) shows it cannot be printed. Once the
+ * bed is committed (`Printing` and past), saying no is a conversation, not
+ * a state change.
  */
 export async function declineStory(actor: Actor, id: number) {
   const story = await loadForAdmin(actor, id);
@@ -373,7 +388,7 @@ export async function declineStory(actor: Actor, id: number) {
     action: "story.declined",
     actor,
     subject: storyRef(story.id),
-    detail: { title: story.title },
+    detail: { title: story.title, from: story.status },
   });
 
   refresh(story.id);
@@ -383,6 +398,119 @@ export async function declineStory(actor: Actor, id: number) {
     title: story.title,
     from: story.status,
     to: "Declined" as StoryStatus,
+    uploaderName: story.uploader.name,
+  };
+}
+
+/**
+ * The owner attaches (or replaces) the printable model on a ticket.
+ *
+ * This is how a link or description request becomes something the viewer,
+ * the download and the slicer link can work with: the owner fetches the
+ * file from the link (or draws what was described), checks it, and puts
+ * the bytes on the ticket. Replacing the file on a file ticket works the
+ * same way — the old object is removed once the new ticket row commits.
+ *
+ * Allowed once the request is approved (`Accepted`, `Printing`, `Delivery`).
+ * Not on `Requested` — accept it first — and not once it is terminal: a
+ * `Declined` ticket is dead and a `Done` one is handed over.
+ *
+ * The bytes go through the same authoritative inspection as an upload, and
+ * the link / description the request arrived with are kept as provenance.
+ */
+export async function attachModel(
+  actor: Actor,
+  id: number,
+  upload: { name: string; bytes: Uint8Array },
+) {
+  const story = await loadForAdmin(actor, id);
+
+  if (story.status === "Requested") {
+    throw problem(409, "Accept it first — a model can be attached once approved.");
+  }
+  if (story.status === "Declined" || story.status === "Done") {
+    throw problem(409, `${storyRef(story.id)} is already ${story.status.toLowerCase()} — there is nothing to attach a model to.`);
+  }
+
+  if (upload.bytes.length === 0) throw problem(400, "That file is empty.");
+  if (upload.bytes.length > MAX_BYTES) throw problem(413, REJECTION_COPY.too_large);
+
+  const filename = safeFilename(upload.name);
+  const inspection = inspectModel(filename, upload.bytes);
+  if (!inspection.ok) {
+    await record({
+      action: "upload.rejected",
+      actor,
+      subject: filename,
+      detail: { reason: inspection.reason, bytes: upload.bytes.length, story: storyRef(story.id) },
+    });
+    throw problem(422, REJECTION_COPY[inspection.reason]);
+  }
+
+  const extension = extensionOf(filename);
+  const key = storageKeyFor(extension);
+  try {
+    await putModel(key, upload.bytes);
+  } catch (error) {
+    console.error(`[attach] ${storyRef(story.id)}: storage write failed`, error);
+    throw problem(502, "The file could not be stored. Try again in a moment.");
+  }
+
+  const previousKey = story.storageKey;
+  try {
+    await db.story.update({
+      where: { id: story.id },
+      data: {
+        sourceType: "file",
+        filename,
+        fileSize: upload.bytes.length,
+        mimeType: MIME_FOR[extension] ?? "application/octet-stream",
+        storageKey: key,
+        dims: inspection.dims,
+      },
+    });
+  } catch (error) {
+    console.error(`[attach] ${storyRef(story.id)}: story update failed`, error);
+    throw problem(500, "The request could not be saved. Try again.");
+  }
+
+  // After the row commits, so a failure here cannot leave the ticket
+  // pointing at an object that is not there. A leftover previous object is
+  // invisible; a ticket with no file is broken in the viewer.
+  if (previousKey && previousKey !== key) {
+    try {
+      await deleteModel(previousKey);
+    } catch (error) {
+      console.error(`[attach] ${storyRef(story.id)}: previous object ${previousKey} not removed`, error);
+    }
+  }
+
+  await notify({
+    recipientId: story.uploaderId,
+    storyId: story.id,
+    text: `${firstName(actor.name)} attached a printable model to “${story.title}”.`,
+  });
+  await record({
+    action: "story.model_attached",
+    actor,
+    subject: storyRef(story.id),
+    detail: {
+      title: story.title,
+      filename,
+      bytes: upload.bytes.length,
+      format: inspection.format,
+      triangles: inspection.triangles,
+      dims: inspection.dims,
+    },
+  });
+
+  refresh(story.id);
+  return {
+    id: story.id,
+    ref: storyRef(story.id),
+    title: story.title,
+    filename,
+    dims: inspection.dims,
     uploaderName: story.uploader.name,
   };
 }
@@ -652,6 +780,57 @@ export async function requeueStory(actor: Actor, id: number) {
     title: src.title,
     fromRef: storyRef(src.id),
   };
+}
+
+export const TitleSchema = z
+  .string()
+  .trim()
+  .min(1, "Give it a name — even a short one.")
+  .max(120, "Keep the title under 120 characters.");
+
+/**
+ * Rename a ticket.
+ *
+ * The person who asked for it, or the printer owner — nobody else. A client
+ * naming another person's story id finds nothing and is told the ticket
+ * does not exist, not "you may not", which would confirm it does.
+ *
+ * Metadata only, so it is allowed at any status, including terminal ones:
+ * fixing a typo on a finished ticket harms nothing. Deliberately audited
+ * but not notified — a rename is worth finding in the trail, not worth
+ * pinging the other side over.
+ */
+export async function renameStory(actor: Actor, id: number, rawTitle: unknown) {
+  const parsed = TitleSchema.safeParse(typeof rawTitle === "string" ? rawTitle : "");
+  if (!parsed.success) {
+    throw problem(400, parsed.error.issues[0]?.message ?? "Check that title.");
+  }
+  const title = parsed.data;
+
+  const story = await db.story.findFirst({
+    where: { AND: [{ id }, storyScope(actor)] },
+    select: { id: true, title: true, status: true, uploaderId: true },
+  });
+  if (!story) throw problem(404, "That ticket no longer exists.");
+  if (actor.role !== "admin" && story.uploaderId !== actor.id) {
+    throw problem(404, "That ticket no longer exists.");
+  }
+
+  if (title === story.title) {
+    return { id: story.id, ref: storyRef(story.id), title, unchanged: true as const };
+  }
+
+  await db.story.update({ where: { id: story.id }, data: { title } });
+
+  await record({
+    action: "story.renamed",
+    actor,
+    subject: storyRef(story.id),
+    detail: { from: story.title, to: title },
+  });
+
+  refresh(story.id);
+  return { id: story.id, ref: storyRef(story.id), title, unchanged: false as const };
 }
 
 // ---------------------------------------------------------------------------

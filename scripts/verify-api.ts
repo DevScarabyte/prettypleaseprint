@@ -214,6 +214,7 @@ async function main() {
     "/api/health", "/api/stories", "/api/stories/{id}",
     "/api/stories/{id}/advance", "/api/stories/{id}/decline",
     "/api/stories/{id}/flag", "/api/stories/{id}/comments",
+    "/api/stories/{id}/model",
     "/api/notifications", "/api/notifications/read",
     "/api/upload", "/api/models/{id}",
   ]) {
@@ -326,10 +327,27 @@ async function main() {
           where: { action: "story.status_changed", subject: storyRef(mine.id) },
         })) === 1);
 
-  const declineLate = await ruben.json<{ error?: string }>(
-    `${APP}/api/stories/${mine.id}/decline`, { method: "POST" });
-  check("an Accepted ticket cannot be declined",
-        declineLate.status === 403, `status ${declineLate.status} ${declineLate.body.error}`);
+  // Saying yes does not lock the owner in: an Accepted ticket whose model
+  // turns out unprintable can still be declined. A separate ticket, so `mine`
+  // stays Accepted for the advance loop below.
+  const secondThoughts = await makeStory(ayla.id, "Second thoughts");
+  const acceptSecond = await ruben.json<{ moved?: { to: string } }>(
+    `${APP}/api/stories/${secondThoughts.id}/advance`, { method: "POST" });
+  check("the other ticket reaches Accepted",
+        acceptSecond.body.moved?.to === "Accepted", JSON.stringify(acceptSecond.body).slice(0, 120));
+  const declineLate = await ruben.json<{ moved?: { from: string; to: string }; notified?: string }>(
+    `${APP}/api/stories/${secondThoughts.id}/decline`, { method: "POST" });
+  check("an Accepted ticket can still be declined",
+        declineLate.status === 200 && declineLate.body.moved?.to === "Declined",
+        `status ${declineLate.status} ${JSON.stringify(declineLate.body).slice(0, 120)}`);
+  check("the uploader is told",
+        (await db.notification.count({ where: { recipientId: ayla.id, storyId: secondThoughts.id } })) > 0);
+
+  const printing = await makeStory(ayla.id, "Already on the bed", "Printing");
+  const declineTooLate = await ruben.json<{ error?: string }>(
+    `${APP}/api/stories/${printing.id}/decline`, { method: "POST" });
+  check("but a Printing ticket cannot be declined",
+        declineTooLate.status === 403, `status ${declineTooLate.status} ${declineTooLate.body.error}`);
 
   for (const expected of ["Printing", "Delivery", "Done"]) {
     const r = await ruben.json<{ moved?: { to: string } }>(
@@ -428,6 +446,52 @@ async function main() {
         tooLate.status === 409, `status ${tooLate.status} ${tooLate.body.error}`);
   check("and the reason names who to ask",
         (tooLate.body.error ?? "").includes(admin.name.split(" ")[0]!), tooLate.body.error);
+
+  // ------------------------------------------------------------------
+  section("renaming is the requester's or the owner's, and nothing else");
+
+  const nameMe = await makeStory(ayla.id, "Working title");
+  const renamed = await client.json<{ renamed?: { to: string; unchanged: boolean } }>(
+    `${APP}/api/stories/${nameMe.id}`, { method: "PATCH", body: JSON.stringify({ title: "  Final title  " }) });
+  check("the requester can rename their own ticket",
+        renamed.status === 200 && renamed.body.renamed?.to === "Final title",
+        `status ${renamed.status} ${JSON.stringify(renamed.body).slice(0, 120)}`);
+  check("and it is trimmed in the database",
+        (await db.story.findUnique({ where: { id: nameMe.id } }))?.title === "Final title");
+  check("and audited, with the before and after",
+        (await db.auditEvent.count({
+          where: { action: "story.renamed", subject: storyRef(nameMe.id) },
+        })) === 1);
+  check("and nobody was notified of a metadata edit",
+        (await db.notification.count({ where: { storyId: nameMe.id } })) === 0);
+
+  const sameAgain = await client.json<{ renamed?: { unchanged: boolean } }>(
+    `${APP}/api/stories/${nameMe.id}`, { method: "PATCH", body: JSON.stringify({ title: "Final title" }) });
+  check("renaming to the same name is a no-op, not an audit row",
+        sameAgain.body.renamed?.unchanged === true &&
+        (await db.auditEvent.count({
+          where: { action: "story.renamed", subject: storyRef(nameMe.id) },
+        })) === 1);
+
+  const blank = await client.json<{ error?: string }>(
+    `${APP}/api/stories/${nameMe.id}`, { method: "PATCH", body: JSON.stringify({ title: "   " }) });
+  check("an empty title is refused", blank.status === 400, `status ${blank.status} ${blank.body.error}`);
+
+  const tooLong = await client.json<{ error?: string }>(
+    `${APP}/api/stories/${nameMe.id}`,
+    { method: "PATCH", body: JSON.stringify({ title: "x".repeat(121) }) });
+  check("and one over 120 characters", tooLong.status === 400, `status ${tooLong.status}`);
+
+  const ownerRename = await ruben.json<{ renamed?: { to: string } }>(
+    `${APP}/api/stories/${nameMe.id}`, { method: "PATCH", body: JSON.stringify({ title: "Owner's wording" }) });
+  check("the printer owner can rename any ticket",
+        ownerRename.body.renamed?.to === "Owner's wording", JSON.stringify(ownerRename.body).slice(0, 120));
+
+  const stranger = await other.json<{ error?: string }>(
+    `${APP}/api/stories/${nameMe.id}`, { method: "PATCH", body: JSON.stringify({ title: "Mine now" }) });
+  check("another client gets 404, not 403", stranger.status === 404, `status ${stranger.status}`);
+  check("and the title is untouched",
+        (await db.story.findUnique({ where: { id: nameMe.id } }))?.title === "Owner's wording");
 
   // ------------------------------------------------------------------
   section("the conversation");

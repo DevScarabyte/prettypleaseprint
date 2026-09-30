@@ -34,6 +34,8 @@ export type AuditAction =
   // work
   | "story.created"
   | "upload.rejected"
+  | "story.model_attached"
+  | "story.renamed"
   | "story.status_changed"
   | "story.declined"
   | "story.withdrawn"

@@ -10,6 +10,7 @@ import {
   clearFlag as clear,
   declineStory as decline,
   flagStory as flag,
+  renameStory as rename,
   requeueStory as requeue,
   storyIdOr400,
   withdrawStory as withdraw,
@@ -100,6 +101,22 @@ export async function clearFlag(formData: FormData): Promise<void> {
     const done = await clear(admin, id);
     return { toast: `Flag cleared · ${done.uploaderName} notified` };
   });
+}
+
+/**
+ * Rename a ticket — the requester's own, or any of them for the owner.
+ * Lands back on the ticket, which now carries the new name.
+ */
+export async function renameStory(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const id = storyIdOr400(formData.get("storyId") ?? formData.get("id"));
+  try {
+    const done = await rename(user, id, formData.get("title") ?? "");
+    back(`/story/${id}`, { toast: done.unchanged ? "That is already its name." : `Renamed to “${done.title}”.` });
+  } catch (error) {
+    if (error instanceof StoryProblem) back(`/story/${id}`, { error: error.message });
+    throw error;
+  }
 }
 
 /**

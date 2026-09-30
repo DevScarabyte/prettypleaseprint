@@ -84,7 +84,9 @@ export class AuthzError extends Error {}
 
 /**
  * Only the admin moves a story, only forwards, only one step at a time.
- * `Declined` is reachable from `Requested` alone.
+ * `Declined` is reachable from `Requested` or `Accepted` — saying yes does
+ * not lock the owner in when the file turns out unprintable on a closer
+ * look. Past `Accepted` the bed is committed, so declining stops there.
  */
 export function assertTransition(
   actor: Actor,
@@ -95,7 +97,7 @@ export function assertTransition(
     throw new AuthzError("Only the printer owner moves a story along.");
   }
   if (to === "Declined") {
-    if (from !== "Requested") {
+    if (from !== "Requested" && from !== "Accepted") {
       throw new AuthzError(`Cannot decline a story that is already ${from}.`);
     }
     return;

@@ -30,6 +30,10 @@ export function AdminActions({
   const next = nextStatus(status);
   const isNew = status === "Requested";
   const declined = status === "Declined";
+  // Saying yes does not lock the owner in: an Accepted ticket whose model
+  // turns out unprintable can still be declined. Past that the bed is
+  // committed, so the control stops there.
+  const declinable = status === "Requested" || status === "Accepted";
 
   if (declined) {
     return (
@@ -101,7 +105,7 @@ export function AdminActions({
         )}
 
         {/* Terminal, so it asks twice. */}
-        {isNew && (
+        {declinable && (
           <details>
             <summary className="inline-block cursor-pointer list-none rounded-chip border-[3px] border-transparent px-[15px] py-[8px] text-[14px] font-bold text-ink-2 hover:border-ink hover:bg-cherry-wash">
               Decline

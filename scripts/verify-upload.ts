@@ -584,6 +584,84 @@ async function main() {
   const noFile = await aylaB.raw(`${APP}/api/models/${linked!.id}`);
   check("a link ticket has no bytes to fetch (404, not 500)", noFile.status === 404, `got ${noFile.status}`);
 
+  section("the owner attaches the printable model once approved");
+
+  // A model cannot be attached while the ticket is still waiting on a yes.
+  const earlyForm = new FormData();
+  earlyForm.set("file", new File([binaryStl(10, 10, 10) as BlobPart], "too-early.stl"));
+  const early = await rubenB.raw(`${APP}/api/stories/${described!.id}/model`, { method: "POST", body: earlyForm });
+  check("attaching before approval is refused", early.status === 409, `got ${early.status}`);
+
+  const acceptDesc = await rubenB.raw(`${APP}/api/stories/${described!.id}/advance`, { method: "POST" });
+  check("the description ticket is accepted", acceptDesc.status === 200, `status ${acceptDesc.status}`);
+
+  const attachForm = new FormData();
+  attachForm.set("file", new File([binaryStl(30, 20, 10) as BlobPart], "hook-final.stl"));
+  const attachRes = await rubenB.raw(`${APP}/api/stories/${described!.id}/model`, { method: "POST", body: attachForm });
+  const attachPayload = attachRes.status === 200 ? await attachRes.json() : { error: await attachRes.text() };
+  check("the owner can attach a model once approved", attachRes.status === 200,
+        `status ${attachRes.status} ${JSON.stringify(attachPayload).slice(0, 140)}`);
+
+  const attached = await db.story.findUnique({ where: { id: described!.id } });
+  check("the ticket now carries the file",
+        attached?.filename === "hook-final.stl" && attached?.sourceType === "file" &&
+        attached?.dims === "30 × 20 × 10 mm",
+        JSON.stringify({ f: attached?.filename, t: attached?.sourceType, d: attached?.dims }));
+  check("and the description it arrived with is kept",
+        attached?.description.startsWith("A hook") ?? false, attached?.description?.slice(0, 20) ?? "");
+  check("the storage key is generated",
+        !!attached?.storageKey && /^models\/\d{4}-\d{2}\/[0-9a-f-]{36}\.stl$/.test(attached.storageKey),
+        attached?.storageKey ?? "");
+  let attachedBytes = 0;
+  try {
+    attachedBytes = (await stat(pathForKey(attached!.storageKey!))).size;
+  } catch {
+    attachedBytes = -1;
+  }
+  check("the bytes really landed on disk",
+        attachedBytes === attached?.fileSize, `stored ${attachedBytes}, expected ${attached?.fileSize}`);
+
+  const attachedPage = await (await aylaB.go(`${APP}/story/${described!.id}`)).text();
+  check("the ticket now previews the model", attachedPage.includes("hook-final.stl"));
+  check("and still shows what was originally described",
+        attachedPage.includes("What they originally described"));
+  check("the uploader was told about the model",
+        (await db.notification.count({ where: { recipientId: ayla.id, storyId: described!.id } })) >= 1);
+  check("attaching is audited",
+        (await db.auditEvent.count({ where: { action: "story.model_attached", actorId: admin.id } })) === 1);
+
+  // A second attach replaces the file rather than stacking objects.
+  const previousKey = attached!.storageKey!;
+  const replaceForm = new FormData();
+  replaceForm.set("file", new File([binaryStl(31, 21, 11) as BlobPart], "hook-final-v2.stl"));
+  const replaceRes = await rubenB.raw(`${APP}/api/stories/${described!.id}/model`, { method: "POST", body: replaceForm });
+  check("replacing the model works", replaceRes.status === 200, `status ${replaceRes.status}`);
+  const replaced = await db.story.findUnique({ where: { id: described!.id } });
+  check("the ticket points at the new object",
+        replaced?.storageKey !== previousKey && replaced?.filename === "hook-final-v2.stl",
+        `${replaced?.storageKey} vs ${previousKey}`);
+  let previousGone = true;
+  try {
+    await stat(pathForKey(previousKey));
+    previousGone = false;
+  } catch {
+    previousGone = true;
+  }
+  check("and the previous object is removed", previousGone);
+
+  const clientForm = new FormData();
+  clientForm.set("file", new File([binaryStl(5, 5, 5) as BlobPart], "sneaky.stl"));
+  const clientAttach = await aylaB.raw(`${APP}/api/stories/${described!.id}/model`, { method: "POST", body: clientForm });
+  check("the requester cannot attach a model (403)", clientAttach.status === 403, `got ${clientAttach.status}`);
+
+  const badAttachForm = new FormData();
+  badAttachForm.set("file", new File([new TextEncoder().encode("%PDF-1.7") as BlobPart], "invoice.stl"));
+  const badAttach = await rubenB.raw(`${APP}/api/stories/${described!.id}/model`, { method: "POST", body: badAttachForm });
+  check("a non-model is refused with 422 and leaves the ticket alone",
+        badAttach.status === 422 &&
+        (await db.story.findUnique({ where: { id: described!.id } }))?.filename === "hook-final-v2.stl",
+        `got ${badAttach.status}`);
+
     section("the audit trail reads correctly");
 
   const actions = await db.auditEvent.groupBy({ by: ["action"], _count: true });

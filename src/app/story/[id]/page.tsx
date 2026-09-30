@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/models";
 import { AppHeader } from "@/components/app-header";
 import { Fact, Notice, StatusChip } from "@/components/ui";
 import { AdminActions } from "@/components/admin-actions";
+import { AttachModel } from "@/components/attach-model";
 import { Conversation } from "@/components/conversation";
 import { ModelViewer } from "@/components/model-viewer";
 import { OpenInSlicer } from "@/components/open-in-slicer";
@@ -14,6 +15,7 @@ import { DownloadModel } from "@/components/download-model";
 import { Toast } from "@/components/toast";
 import { WithdrawStory } from "@/components/withdraw-story";
 import { RequeueStory } from "@/components/requeue-story";
+import { RenameStory } from "@/components/rename-story";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +60,55 @@ export default async function StoryPage({
         <div className="mt-[13.2px] grid grid-cols-[repeat(auto-fit,minmax(330px,1fr))] items-start gap-[26.4px]">
           {/* ---------- left: the model (or the link / description) ---------- */}
           <div>
-            {story.sourceType === "link" ? (
+            {story.filename && story.fileSize != null ? (
+              <>
+                <ModelViewer
+                  storyId={story.id}
+                  filename={story.filename}
+                  colorHex={story.colorHex}
+                  dims={story.dims}
+                  fileSize={story.fileSize}
+                />
+
+                {/* Both measured from the file itself. Nothing inferred. */}
+                <div className="mt-[13.2px] flex flex-wrap gap-[8px]">
+                  {[story.dims ?? "dimensions unknown", formatBytes(story.fileSize)].map((v) => (
+                    <span
+                      key={v}
+                      className="rounded-chip border-2 border-ink bg-porcelain px-[11px] py-[3px] font-mono text-[12px] font-bold text-ink"
+                    >
+                      {v}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Where the request itself came from. Attaching the printable
+                    model does not erase the link or the brief it arrived with. */}
+                {story.sourceUrl && /^https?:\/\//i.test(story.sourceUrl) && (
+                  <p className="m-0 mt-[8.8px] break-all font-mono text-[11.5px] leading-[1.5] text-ink-3">
+                    Sent as a link:{" "}
+                    <a
+                      href={story.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="font-bold text-cherry-dk underline underline-offset-4 hover:text-cherry"
+                    >
+                      {story.sourceUrl}
+                    </a>
+                  </p>
+                )}
+                {story.description && (
+                  <details className="group mt-[8.8px] rounded-card border-[3px] border-ink bg-cream-2 p-[13.2px]">
+                    <summary className="cursor-pointer font-mono text-[11.5px] font-bold uppercase tracking-[0.06em] text-ink-2 hover:text-cherry-dk">
+                      What they originally described
+                    </summary>
+                    <p className="m-0 mt-[8px] whitespace-pre-wrap text-[14.5px] leading-[1.55] text-ink">
+                      {story.description}
+                    </p>
+                  </details>
+                )}
+              </>
+            ) : story.sourceType === "link" ? (
               <div className="rounded-panel border-[3px] border-ink bg-porcelain p-[22px] shadow-stamp-lg">
                 <p className="m-0 font-mono text-[11.5px] font-bold uppercase tracking-[0.12em] text-ink-3">
                   Linked model
@@ -85,7 +135,7 @@ export default async function StoryPage({
                   </p>
                 )}
               </div>
-            ) : story.sourceType === "description" ? (
+            ) : (
               <div className="rounded-panel border-[3px] border-ink bg-porcelain p-[22px] shadow-stamp-lg">
                 <p className="m-0 font-mono text-[11.5px] font-bold uppercase tracking-[0.12em] text-ink-3">
                   What they described
@@ -94,32 +144,6 @@ export default async function StoryPage({
                   {story.description || "No description was kept."}
                 </p>
               </div>
-            ) : (
-              <>
-                {story.filename && story.fileSize != null && (
-                  <>
-                    <ModelViewer
-                      storyId={story.id}
-                      filename={story.filename}
-                      colorHex={story.colorHex}
-                      dims={story.dims}
-                      fileSize={story.fileSize}
-                    />
-
-                    {/* Both measured from the file itself. Nothing inferred. */}
-                    <div className="mt-[13.2px] flex flex-wrap gap-[8px]">
-                      {[story.dims ?? "dimensions unknown", formatBytes(story.fileSize)].map((v) => (
-                        <span
-                          key={v}
-                          className="rounded-chip border-2 border-ink bg-porcelain px-[11px] py-[3px] font-mono text-[12px] font-bold text-ink"
-                        >
-                          {v}
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
             )}
 
             {/* Send the model to a PrusaSlicer on the viewer's own machine.
@@ -127,8 +151,8 @@ export default async function StoryPage({
                 see the component and docs/prusaslicer.md for why. */}
             {/* The plain way to get the bytes — no helper, any machine. Kept
                 above the slicer control so the simple answer is the visible
-                one. Only file tickets have bytes to offer. */}
-            {story.sourceType === "file" && story.filename && (
+                one. Only tickets with a model attached have bytes to offer. */}
+            {story.filename && (
               <>
                 <DownloadModel storyId={story.id} filename={story.filename} />
 
@@ -161,6 +185,14 @@ export default async function StoryPage({
             <h1 className="m-0 mb-[13.2px] text-[36px] leading-[1.02] text-ink">
               {story.title}
             </h1>
+            {/* The name is editable by the person who asked for it, or the
+                printer owner — anybody else never sees this control, and the
+                endpoint checks again anyway. */}
+            {(story.uploader.id === user.id || user.role === "admin") && (
+              <div className="mb-[13.2px]">
+                <RenameStory storyId={story.id} currentTitle={story.title} />
+              </div>
+            )}
             {story.note && (
               <p className="m-0 mb-[22px] text-[16px] leading-[1.55] text-ink-2 text-pretty">
                 {story.note}
@@ -301,6 +333,14 @@ export default async function StoryPage({
                   flagReason={story.flagReason}
                   from={`/story/${story.id}`}
                 />
+                {/* Once approved, the owner can put the printable model on
+                    the ticket — the file fetched from the link, or drawn
+                    from the description. */}
+                {(story.status === "Accepted" ||
+                  story.status === "Printing" ||
+                  story.status === "Delivery") && (
+                  <AttachModel storyId={story.id} hasFile={!!story.filename} />
+                )}
               </section>
             )}
           </div>

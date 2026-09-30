@@ -229,10 +229,10 @@ async function main() {
    * check that the transition rule holds, which it would pass even if
    * `assertTransition` were deleted.
    *
-   * The rule itself is covered, and properly: `verify:api` asserts a 403 for
-   * declining an Accepted ticket, and both front doors call the same
-   * `src/lib/stories.ts`, so the service is exercised either way. Named for
-   * what it does rather than what it looks like it does.
+   * The rule itself is covered, and properly: `verify:api` declines an
+   * Accepted ticket and refuses one that is Printing, and both front doors
+   * call the same `src/lib/stories.ts`, so the service is exercised either
+   * way. Named for what it does rather than what it looks like it does.
    */
   const late = await makeStory(ayla.id, "Too late to decline", "Printing");
   const lateRes = await ruben.raw(`${APP}/story/${late.id}`, {

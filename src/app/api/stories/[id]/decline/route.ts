@@ -2,9 +2,9 @@ import { ok, storyResource, withActor } from "@/lib/api";
 import { declineStory, getStory, storyIdOr400 } from "@/lib/stories";
 
 /**
- * Say no. Terminal, and only reachable from `Requested` — once the printer
- * owner has said yes, saying no is a conversation, not a state change. A
- * decline from anywhere else is 403, carrying the sentence that says why.
+ * Say no. Terminal, and reachable from `Requested` or `Accepted` — saying
+ * yes does not lock the printer owner in. A decline from anywhere past that
+ * is 403, carrying the sentence that says why.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
