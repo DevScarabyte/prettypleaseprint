@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
-import { COLORS, MATERIALS, TIPS, WishSchema } from "@/lib/catalog";
+import { TIPS, WishSchema } from "@/lib/catalog";
 import { ACCEPTED_EXTENSIONS, MAX_BYTES, formatBytes } from "@/lib/models";
 import { FLOW } from "@/lib/scope";
 import { BodySchema, LIST_LIMIT_DEFAULT, LIST_LIMIT_MAX, ReasonSchema } from "@/lib/stories";
@@ -93,11 +93,11 @@ const STORY_SCHEMA = {
     flagged: { type: "boolean" },
     flagReason: { type: ["string", "null"] },
     quantity: { type: "integer", minimum: 1 },
-    material: { type: "string", enum: [...MATERIALS] },
+    material: { type: "string", description: "Filament type — PLA, PETG, ABS, ASA, … (free-form; Bambuddy stock decides the live list).", examples: ["PETG"] },
     color: {
       type: "object",
       properties: {
-        name: { type: "string", enum: COLORS.map((c) => c.name) },
+        name: { type: "string", examples: ["Slate"] },
         hex: { type: "string", examples: ["#4a5d78"] },
       },
     },
@@ -854,6 +854,62 @@ export async function buildOpenApiDocument() {
             "401": { description: "No session." },
             "404": { description: "No such ticket, or not one you may see." },
             "502": { description: "Object storage did not answer." },
+          },
+        },
+      },
+
+      "/api/filaments": {
+        get: {
+          tags: ["files"],
+          summary: "Live spool stock from Bambuddy",
+          description:
+            "The filament Bambuddy reports on the shelf — material, brand, colour " +
+            "name + hex, remaining grams. Always 200: when Bambuddy is down or " +
+            "unconfigured the body carries an empty list (and an `error` sentence) " +
+            "so callers fall back to the manual picker. `?refresh=1` bypasses the " +
+            "60 s server cache.",
+          parameters: [
+            {
+              name: "refresh",
+              in: "query",
+              description: "Set to 1 to bypass the server cache.",
+              schema: { type: "string", enum: ["1"] },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "The stock, or why there is none.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      configured: { type: "boolean" },
+                      filaments: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "integer" },
+                            material: { type: "string", examples: ["PLA"] },
+                            brand: { type: ["string", "null"] },
+                            subtype: { type: ["string", "null"] },
+                            colorName: { type: "string" },
+                            colorHex: { type: "string", examples: ["#4a5d78"] },
+                            remainingG: { type: ["number", "null"] },
+                            labelWeightG: { type: ["number", "null"] },
+                            location: { type: ["string", "null"] },
+                          },
+                        },
+                      },
+                      updatedAt: { type: ["string", "null"], format: "date-time" },
+                      error: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            ...COMMON_ERRORS,
           },
         },
       },

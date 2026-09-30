@@ -8,6 +8,33 @@ import { z } from "zod";
 export const MATERIALS = ["PLA", "PETG", "TPU", "Resin"] as const;
 export const DEFAULT_MATERIAL = "PETG";
 
+/**
+ * Free-form material / colour rules for tickets.
+ *
+ * The four MATERIALS above are the quick-pick segmented control, but a ticket
+ * may carry any material Bambuddy reports (ABS, ASA, PC, PA, …) — the stock
+ * on the shelf decides, not this list. Same for colours: the five swatches
+ * below are the manual fallback; a Bambuddy spool brings its own name + hex.
+ */
+export const MaterialSchema = z
+  .string()
+  .trim()
+  .min(1, "Pick a material.")
+  .max(40, "That material name is very long.")
+  .transform((v) => v.toUpperCase());
+
+export const ColorNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Pick a colour.")
+  .max(80, "That colour name is very long.");
+
+export const ColorHexSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "That colour is not a #RRGGBB hex.")
+  .transform((v) => v.toLowerCase());
+
 /** Filament swatches. Light ones need the inset ring to stay visible. */
 export const COLORS = [
   { name: "Teal", hex: "#12645f" },
@@ -74,8 +101,6 @@ export const STATUS_CHIP: Record<
   Declined: { bg: "#e2e6ea", fg: "#6b747c" },
 };
 
-const colorNames = COLORS.map((c) => c.name) as unknown as [string, ...string[]];
-
 export const QuantitySchema = z.coerce
   .number()
   .int("Whole prints only.")
@@ -91,8 +116,10 @@ export const WishSchema = z.object({
     .max(120, "Keep the title under 120 characters.")
     .optional()
     .default(""),
-  material: z.enum(MATERIALS),
-  colorName: z.enum(colorNames),
+  material: MaterialSchema,
+  colorName: ColorNameSchema,
+  /** Hex of the wished colour. Old clients don't send it — the route falls back to the swatch table. */
+  colorHex: ColorHexSchema.optional(),
   quantity: QuantitySchema,
   // The tip is no longer a compile-time enum — it is an owner-managed list.
   // This module is shared with the client bundle and cannot read the database,

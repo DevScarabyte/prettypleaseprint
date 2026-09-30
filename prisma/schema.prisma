@@ -251,13 +251,9 @@ enum StoryStatus {
   Declined
 }
 
-enum Material {
-  PLA
-  PETG
-  TPU
-  Resin
-}
-
+/// Free-form filament type ("PLA", "PETG", "ABS", …). Was an enum of four;
+/// Bambuddy-backed stock decides the real list, so the column is text and the
+/// quick-pick list in src/lib/catalog.ts is just the common four.
 enum SourceType {
   file
   link
@@ -274,7 +270,7 @@ model Story {
   uploader   User   @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
 
   quantity  Int      @default(1)
-  material  Material @default(PETG)
+  material  String @default("PETG")
   colorName String
   colorHex  String
   tip       String

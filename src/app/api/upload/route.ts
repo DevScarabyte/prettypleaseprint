@@ -127,6 +127,7 @@ async function handleUpload(request: Request, user: Actor) {
     title: form.get("title") ?? "",
     material: form.get("material"),
     colorName: form.get("colorName"),
+    colorHex: form.get("colorHex") ?? undefined,
     quantity: form.get("quantity"),
     tip: form.get("tip"),
     note: form.get("note") ?? "",
@@ -166,8 +167,7 @@ async function handleUpload(request: Request, user: Actor) {
 
     const sourceUrl = kind === "link" ? rawUrl.trim() : null;
     const description = kind === "description" ? rawDescription.trim() : "";
-    const fallbackTitle =
-      kind === "link"
+    const fallbackTitle =      kind === "link"
         ? (() => {
             try {
               return new URL(sourceUrl!).hostname.replace(/^www\./, "");
@@ -180,6 +180,9 @@ async function handleUpload(request: Request, user: Actor) {
 
     let story;
     try {
+      // A live Bambuddy spool carries its own hex; an old client (or the
+      // manual swatches) only sends a name, so the swatch table decides.
+      const colorHex = wish.data.colorHex ?? hexForColor(wish.data.colorName);
       story = await db.story.create({
         data: {
           title,
@@ -188,7 +191,7 @@ async function handleUpload(request: Request, user: Actor) {
           quantity: wish.data.quantity,
           material: wish.data.material,
           colorName: wish.data.colorName,
-          colorHex: hexForColor(wish.data.colorName),
+          colorHex,
           tip: wish.data.tip,
           note: wish.data.note,
           printSettings: wish.data.printSettings,
@@ -271,6 +274,7 @@ async function handleUpload(request: Request, user: Actor) {
 
   let story;
   try {
+    const colorHex = wish.data.colorHex ?? hexForColor(wish.data.colorName);
     story = await db.story.create({
       data: {
         title,
@@ -279,7 +283,7 @@ async function handleUpload(request: Request, user: Actor) {
         quantity: wish.data.quantity,
         material: wish.data.material,
         colorName: wish.data.colorName,
-        colorHex: hexForColor(wish.data.colorName),
+        colorHex,
         tip: wish.data.tip,
         note: wish.data.note,
         printSettings: wish.data.printSettings,
