@@ -69,6 +69,7 @@ no header that names a user.
 | `POST` | `/api/notifications/read` | Mark one read, or all of them. |
 | `POST` | `/api/upload` | Upload a model and open a request. Multipart. |
 | `GET` | `/api/models/{id}` | The model's bytes. |
+| `GET` | `/api/filaments` | Live spool stock from Bambuddy (`?refresh=1` bypasses the 60 s cache). Always `200` — `{ configured, filaments, updatedAt, error? }` — so callers degrade to the manual picker when Bambuddy is down. |
 | `GET` | `/api/openapi.json` | This surface, machine-readable. |
 | | `/api/auth/*` | Every Better Auth endpoint — sign-in, passkeys, admin, reset. |
 

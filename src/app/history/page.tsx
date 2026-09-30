@@ -47,12 +47,14 @@ export default async function HistoryPage({
   const isAdmin = user.role === "admin";
 
   // Only honour values we recognise; anything else falls back to "all".
+  // Material is free-form text since Bambuddy-backed stock (ABS, ASA, …),
+  // so accept any sane token rather than the old four-value list.
   const statusFilter =
     status && (HISTORY_STATUSES as readonly string[]).includes(status)
       ? (status as StoryStatus)
       : undefined;
   const materialFilter =
-    material && (MATERIALS as readonly string[]).includes(material) ? material : undefined;
+    material && /^[\w +\-]{1,40}$/.test(material) ? material.toUpperCase() : undefined;
   const sincePreset = SINCE.find((s) => s.key === since) ?? SINCE[3]; // default: all time
 
   const stories = await listHistory(user, {
@@ -99,7 +101,14 @@ export default async function HistoryPage({
             <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-ink-2">Material</span>
             <select name="material" defaultValue={materialFilter ?? ""} className={selectClass}>
               <option value="">Any</option>
-              {MATERIALS.map((m) => (
+              {Array.from(
+                new Set([
+                  ...MATERIALS,
+                  ...(materialFilter && !(MATERIALS as readonly string[]).includes(materialFilter)
+                    ? [materialFilter]
+                    : []),
+                ]),
+              ).map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>

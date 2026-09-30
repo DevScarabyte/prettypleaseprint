@@ -33,6 +33,7 @@ const NAV: Record<Actor["role"], Array<{ label: string; href: string }>> = {
     // has been asked for, and triage is one button away on that page.
     { label: "Feature requests", href: "/frr" },
     { label: "Benefits", href: "/admin/benefits" },
+    { label: "Filament", href: "/admin/filaments" },
     { label: "Guest list", href: "/admin/invites" },
     { label: "Audit", href: "/admin/audit" },
   ],

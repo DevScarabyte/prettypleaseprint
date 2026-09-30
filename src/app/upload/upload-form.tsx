@@ -9,6 +9,7 @@ import {
   DEFAULT_MATERIAL,
   MATERIALS,
   QUANTITY_PRESETS,
+  hexForColor,
 } from "@/lib/catalog";
 // The same numbers the server enforces. `models.ts` cannot be imported here —
 // it would pull `fflate` and the mesh parser into the browser bundle — which
@@ -19,6 +20,7 @@ import {
   formatBytes,
 } from "@/lib/upload-limits";
 import type { SourceType } from "@/lib/catalog";
+import { FilamentPicker } from "./filament-picker";
 
 /** One owner-managed tip option, passed from the server (see upload/page.tsx). */
 type Benefit = { label: string; preferred: boolean };
@@ -98,6 +100,7 @@ export function UploadForm({
   const [material, setMaterial] = useState<string>(DEFAULT_MATERIAL);
   const [quantity, setQuantity] = useState<number>(1);
   const [color, setColor] = useState<string>(DEFAULT_COLOR.name);
+  const [colorHex, setColorHex] = useState<string>(DEFAULT_COLOR.hex);
   const [tip, setTip] = useState<string>(defaultTip);
   const [note, setNote] = useState("");
   const [printSettings, setPrintSettings] = useState("");
@@ -166,6 +169,7 @@ export function UploadForm({
     body.set("title", title);
     body.set("material", material);
     body.set("colorName", color);
+    body.set("colorHex", colorHex);
     body.set("quantity", String(quantity));
     body.set("tip", tip);
     body.set("note", note);
@@ -362,6 +366,16 @@ export function UploadForm({
         </div>
       )}
 
+      {/* ---- live stock from Bambuddy (renders nothing when unconfigured) ---- */}
+      <FilamentPicker
+        current={{ material, colorName: color, colorHex }}
+        onPick={(spool) => {
+          setMaterial(spool.material);
+          setColor(spool.colorName);
+          setColorHex(spool.colorHex.toLowerCase());
+        }}
+      />
+
       {/* ---- title + material ---- */}
       <div className="mt-[26.4px] grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-[22px]">
         <div>
@@ -380,9 +394,30 @@ export function UploadForm({
           <Segmented
             label="Material"
             options={MATERIALS}
-            value={material}
-            onChange={setMaterial}
+            value={(MATERIALS as readonly string[]).includes(material) ? material : MATERIALS[0]}
+            onChange={(v) => setMaterial(v)}
           />
+          {!(MATERIALS as readonly string[]).includes(material) ? (
+            <p className="m-0 mt-[8px] flex items-center gap-[8px] font-mono text-[12px] font-bold uppercase tracking-[0.04em] text-cherry-dk">
+              From the shelf: {material} — or pick above to override.
+            </p>
+          ) : null}
+          <div className="mt-[8.8px] flex items-center gap-[8.8px]">
+            <label htmlFor="material-other" className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-ink-3">
+              or another
+            </label>
+            <input
+              id="material-other"
+              value={(MATERIALS as readonly string[]).includes(material) ? "" : material}
+              onChange={(e) => {
+                const v = e.target.value.trim().toUpperCase();
+                if (v) setMaterial(v.slice(0, 40));
+              }}
+              maxLength={40}
+              placeholder="ABS, ASA, …"
+              className="w-[160px] rounded-card border-[3px] border-ink bg-porcelain px-[10px] py-[6px] font-mono text-[14px] font-bold uppercase text-ink placeholder:text-ink-3"
+            />
+          </div>
         </div>
       </div>
 
@@ -417,6 +452,16 @@ export function UploadForm({
         <legend className="mb-[8.8px] font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-ink-2">
           Colour you&rsquo;re hoping for
         </legend>
+        {!(COLORS as readonly { name: string }[]).some((c) => c.name === color) && (
+          <p className="m-0 mb-[8px] flex items-center gap-[8px] text-[14px] font-bold text-ink">
+            <span
+              aria-hidden
+              className="inline-block h-[24px] w-[24px] rounded-full border-[3px] border-ink"
+              style={{ background: colorHex }}
+            />
+            From the shelf: {color}
+          </p>
+        )}
         <div className="flex flex-wrap gap-[13.2px]">
           {COLORS.map((c) => {
             const active = c.name === color;
@@ -427,7 +472,10 @@ export function UploadForm({
                 role="radio"
                 aria-checked={active}
                 aria-label={`${c.name} filament`}
-                onClick={() => setColor(c.name)}
+                onClick={() => {
+                  setColor(c.name);
+                  setColorHex(c.hex.toLowerCase());
+                }}
                 className="flex w-[80px] cursor-pointer flex-col items-center gap-[7px] border-0 bg-transparent p-0"
               >
                 <span
